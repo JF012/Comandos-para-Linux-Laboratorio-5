@@ -1,0 +1,57 @@
+# Actualizamos repositorios y luego instalamos el servicio pacemaker tanto en la maquina 1 como la 2
+$ sudo apt update && sudo apt install pacemaker pcs resource-agents
+
+# Activa dicho servicio tanto en la maquina 1 como la 2
+$ sudo systemctl enable --now pcsd
+$ sudo systemctl status pcsd
+
+# Asigna una clave al cluster 
+$ echo "hacluster:$PASS" | sudo chpasswd
+
+#Visualiza las ip tanto en la maquina 1 como la 2
+$ ip addr
+
+# Asignale la ip del nodo 1 y 2 con la ip de las dos maquinas (esto lo puedes hacer en la primaria)
+N1IP=IP_DE_LA_PRIMERA_MAQUINA
+N2IP=IP_DE_LA_SEGUNDA_MAQUINA
+N1=node01.srv.world
+N2=node02.srv.world
+PASS='CLAVE'
+
+# Abre los puertos 2224 y 5405
+$ sudo iptables -I INPUT -p tcp --dport 2224 -j ACCEPT
+  sudo iptables -I INPUT -p udp --dport 5405 -j ACCEPT
+
+# Otorgales una clave
+$ echo 'hacluster:parrot' | sudo chpasswd
+id hacluster
+
+# Autorizalos
+sudo pcs host auth node01.srv.world addr=IP_DE_LA_PIMERA_MAQUINA node02.srv.world addr=IP_DE_LA_SEGUNDA_MAQUINA -u hacluster
+
+# Cambia el nombre de host del sistema, de forma permanente, a node01.srv.world usando systemd (tanto en la maquina 1 como la 2) (node01 en la maquina 1 y node02 en la segunda)
+$ sudo hostnamectl set-hostname node01.srv.world
+$ sudo hostnamectl set-hostname node02.srv.world
+
+# Sincroniza los nodos ahora tanto en la maquina 1 como la 2
+echo "192.168.0.21 node01.srv.world node01" | sudo tee -a /etc/hosts
+echo "192.168.0.16 node02.srv.world node02" | sudo tee -a /etc/hosts
+
+# Apaga/aisla nodos problemáticos; apagarlo evita expulsiones automáticas
+$ sudo pcs property set stonith-enabled=false
+
+# Permite que un subconjunto de nodos siga ejecutando recursos aunque no tenga mayoría
+$ sudo pcs property set no-quorum-policy=ignore
+
+# Crea la IP flotante Y asignala en puerto ens33 preferiblemente
+$ sudo pcs resource show ClusterIP
+sudo pcs resource update ClusterIP nic=ens33 ip=192.168.0.200 cidr_netmask=24
+sudo pcs resource cleanup ClusterIP
+sudo pcs resource status
+ip -4 addr show dev ens33 | grep 192.168.0.200 || ping -c 3 192.168.0.200
+
+# Chequea el estado del cluster tanto en la maquina 1 como la 2 
+$ sudo pcs status 
+
+
+
