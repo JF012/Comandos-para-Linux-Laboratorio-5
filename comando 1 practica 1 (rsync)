@@ -1,0 +1,85 @@
+# En la dos maquinas ejecutas: 
+$ sudo apt update
+$ sudo apt install -y rsync openssh-server
+$ sudo systemctl status ssh --no-pager
+
+# En la maquina principal creas una carpeta (ej test1)
+$ sudo mkdir -p /test1
+
+# Otorgale permisos a dicha carpeta     (reemplaza "$USER":"$USER", por tu usuario verdadero)
+$ sudo chown "$USER":"$USER" /test1     
+
+# Dentro de la carpeta crea los 100 archivos .txt
+$ sudo touch /test1/arhcivo_{001..100}.txt
+
+# En la segunda maquina averigua cual es tu segunda ip
+$ ip addr
+
+# Desde la maquina primaria crea una carpeta hacia la maquina secundaria con una ruta especificada (Ej: /home) 
+$ ssh USUARIO@IP_DE_LA_SEGUNDA_MAQUINA 'mkdir -p /home/USUARIO/test2'
+
+# Otorga permisos a tu segunda maquina para que la sincronizacion sea exitosa
+$ ssh -t USUARIO@IP_DE_LA_SEGUNDA_MAQUINA 'sudo install -d -m 755 -o USUARIO -g USUARIO /test2'
+
+# Inicia la sincronizacion
+$ rsync -azv -e "ssh" /test1/ USUARIO@IP_DE_LA_SEGUNDA_MAQUINA:/test2/
+
+# Genera una llave clave desde tu maquina primaria para que la secundaria no requiera de acceso por clave hacia la primaria
+$ ssh-keygen
+$ ssh-keygen -t edXXXXX -C "rsync-auto" -N "" -f ~/.ssh/id_edXXXXX
+$ ssh-copy-id USUARIO@IP_DE_LA_SEGUNDA_MAQUINA 
+
+# En la maquina primaria ejecuta este comando: 
+sudo tee /usr/local/bin/sync_datos.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC="/test1/"
+DST_USER="usuario"
+DST_HOST="IP_SECUNDARIO"
+DST_PATH="/test2/"
+
+rsync -azv -e "ssh" "$SRC" "${DST_USER}@${DST_HOST}:${DST_PATH}"
+EOF
+
+
+# Otorga permisos a dicha a dicha carpeta de sincronizacion creada (en este caso DATOS) 
+$ sudo chmod +x /usr/local/bin/sync_datos.sh
+
+# Abre el servicio crontab 
+$ crontab -e         (Luego presionas 1) 
+
+
+# Agrega la tarea solicitada
+$ * * * * * /usr/local/bin/sync_datos.sh >>/var/log/sync_datos.log 2>&1
+
+# Preisona Ctrl + x, presiona Y, y por ultimo Ctrl + x nuevamente
+
+# Habilita el servicio crontab en tu maquina primaria
+$ sudo systemctl enable --now cron
+
+# Visualiza el estatus de dicho servicio
+$ sudo systemctl status cron --no-pager
+
+# Otorga permisos a la carpeta /test1
+$ sudo chown USER:USER /test1
+
+# Haz una prueba en la carpeta sincronizada para ver si resulto
+$ date +'%F_%T' > /test1/prueba_$(date +%s).txt
+
+# Visualiza en tiempo real si se logro con exito
+$ ssh USUARIO@IP_DE_LA_SEGUNDA_MAQUINA 'ls -lt /test2 | head'
+
+
+
+
+
+---------- EN CASO DE QUE TENGAS AUTENTICACION DESACTIVADA ----------
+
+sudo sed -i 's/^PasswordAuthentication ./PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/^PubkeyAuthentication ./PubkeyAuthentication yes/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
+
+
+# Para verificar que no se necesita clave a la hora de usar ssh usa "echo ok" 
+$ ssh USUARIO@IP_DE_LA_SEGUNDA_MAQUINA "echo ok"      y deberia decir 'ok'
